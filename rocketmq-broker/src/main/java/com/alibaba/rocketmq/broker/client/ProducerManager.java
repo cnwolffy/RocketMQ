@@ -1,21 +1,27 @@
 /**
- * Copyright (C) 2010-2013 Alibaba Group Holding Limited
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 package com.alibaba.rocketmq.broker.client;
 
+import com.alibaba.rocketmq.common.constant.LoggerName;
+import com.alibaba.rocketmq.remoting.common.RemotingHelper;
+import com.alibaba.rocketmq.remoting.common.RemotingUtil;
 import io.netty.channel.Channel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Iterator;
@@ -25,19 +31,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.alibaba.rocketmq.common.constant.LoggerName;
-import com.alibaba.rocketmq.remoting.common.RemotingHelper;
-import com.alibaba.rocketmq.remoting.common.RemotingUtil;
-
 
 /**
- * 管理Producer组及各个Producer连接
- *
- * @author shijia.wxr<vintage.wang@gmail.com>
- * @since 2013-7-26
+ * @author shijia.wxr
  */
 public class ProducerManager {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.BrokerLoggerName);
@@ -56,7 +52,7 @@ public class ProducerManager {
         HashMap<String /* group name */, HashMap<Channel, ClientChannelInfo>> newGroupChannelTable =
                 new HashMap<String, HashMap<Channel, ClientChannelInfo>>();
         try {
-            if (this.groupChannelLock.tryLock(LockTimeoutMillis, TimeUnit.MILLISECONDS)){
+            if (this.groupChannelLock.tryLock(LockTimeoutMillis, TimeUnit.MILLISECONDS)) {
                 try {
                     newGroupChannelTable.putAll(groupChannelTable);
                 } finally {
@@ -64,7 +60,7 @@ public class ProducerManager {
                 }
             }
         } catch (InterruptedException e) {
-           log.error("",e);
+            log.error("", e);
         }
         return newGroupChannelTable;
     }
@@ -75,7 +71,7 @@ public class ProducerManager {
             if (this.groupChannelLock.tryLock(LockTimeoutMillis, TimeUnit.MILLISECONDS)) {
                 try {
                     for (final Map.Entry<String, HashMap<Channel, ClientChannelInfo>> entry : this.groupChannelTable
-                        .entrySet()) {
+                            .entrySet()) {
                         final String group = entry.getKey();
                         final HashMap<Channel, ClientChannelInfo> chlMap = entry.getValue();
 
@@ -89,22 +85,19 @@ public class ProducerManager {
                             if (diff > ChannelExpiredTimeout) {
                                 it.remove();
                                 log.warn(
-                                    "SCAN: remove expired channel[{}] from ProducerManager groupChannelTable, producer group name: {}",
-                                    RemotingHelper.parseChannelRemoteAddr(info.getChannel()), group);
+                                        "SCAN: remove expired channel[{}] from ProducerManager groupChannelTable, producer group name: {}",
+                                        RemotingHelper.parseChannelRemoteAddr(info.getChannel()), group);
                                 RemotingUtil.closeChannel(info.getChannel());
                             }
                         }
                     }
-                }
-                finally {
+                } finally {
                     this.groupChannelLock.unlock();
                 }
-            }
-            else {
+            } else {
                 log.warn("ProducerManager scanNotActiveChannel lock timeout");
             }
-        }
-        catch (InterruptedException e) {
+        } catch (InterruptedException e) {
             log.error("", e);
         }
     }
@@ -116,7 +109,7 @@ public class ProducerManager {
                 if (this.groupChannelLock.tryLock(LockTimeoutMillis, TimeUnit.MILLISECONDS)) {
                     try {
                         for (final Map.Entry<String, HashMap<Channel, ClientChannelInfo>> entry : this.groupChannelTable
-                            .entrySet()) {
+                                .entrySet()) {
                             final String group = entry.getKey();
                             final HashMap<Channel, ClientChannelInfo> clientChannelInfoTable =
                                     entry.getValue();
@@ -129,16 +122,13 @@ public class ProducerManager {
                             }
 
                         }
-                    }
-                    finally {
+                    } finally {
                         this.groupChannelLock.unlock();
                     }
-                }
-                else {
+                } else {
                     log.warn("ProducerManager doChannelCloseEvent lock timeout");
                 }
-            }
-            catch (InterruptedException e) {
+            } catch (InterruptedException e) {
                 log.error("", e);
             }
         }
@@ -161,22 +151,19 @@ public class ProducerManager {
                     if (null == clientChannelInfoFound) {
                         channelTable.put(clientChannelInfo.getChannel(), clientChannelInfo);
                         log.info("new producer connected, group: {} channel: {}", group,
-                            clientChannelInfo.toString());
+                                clientChannelInfo.toString());
                     }
-                }
-                finally {
+                } finally {
                     this.groupChannelLock.unlock();
                 }
 
                 if (clientChannelInfoFound != null) {
                     clientChannelInfoFound.setLastUpdateTimestamp(System.currentTimeMillis());
                 }
-            }
-            else {
+            } else {
                 log.warn("ProducerManager registerProducer lock timeout");
             }
-        }
-        catch (InterruptedException e) {
+        } catch (InterruptedException e) {
             log.error("", e);
         }
     }
@@ -191,7 +178,7 @@ public class ProducerManager {
                         ClientChannelInfo old = channelTable.remove(clientChannelInfo.getChannel());
                         if (old != null) {
                             log.info("unregister a producer[{}] from groupChannelTable {}", group,
-                                clientChannelInfo.toString());
+                                    clientChannelInfo.toString());
                         }
 
                         if (channelTable.isEmpty()) {
@@ -199,16 +186,13 @@ public class ProducerManager {
                             log.info("unregister a producer group[{}] from groupChannelTable", group);
                         }
                     }
-                }
-                finally {
+                } finally {
                     this.groupChannelLock.unlock();
                 }
-            }
-            else {
+            } else {
                 log.warn("ProducerManager unregisterProducer lock timeout");
             }
-        }
-        catch (InterruptedException e) {
+        } catch (InterruptedException e) {
             log.error("", e);
         }
     }

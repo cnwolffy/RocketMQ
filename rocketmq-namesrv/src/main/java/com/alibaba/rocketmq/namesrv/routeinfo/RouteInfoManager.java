@@ -1,35 +1,20 @@
 /**
- * Copyright (C) 2010-2013 Alibaba Group Holding Limited
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 package com.alibaba.rocketmq.namesrv.routeinfo;
-
-import io.netty.channel.Channel;
-
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map.Entry;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.alibaba.rocketmq.common.DataVersion;
 import com.alibaba.rocketmq.common.MixAll;
@@ -45,16 +30,24 @@ import com.alibaba.rocketmq.common.protocol.route.QueueData;
 import com.alibaba.rocketmq.common.protocol.route.TopicRouteData;
 import com.alibaba.rocketmq.common.sysflag.TopicSysFlag;
 import com.alibaba.rocketmq.remoting.common.RemotingUtil;
+import io.netty.channel.Channel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.*;
+import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 
 /**
- * 运行过程中的路由信息，数据只在内存，宕机后数据消失，但是Broker会定期推送最新数据
- * 
- * @author shijia.wxr<vintage.wang@gmail.com>
- * @since 2013-7-2
+ * @author shijia.wxr
  */
 public class RouteInfoManager {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.NamesrvLoggerName);
+
+    private final static long BrokerChannelExpiredTime = 1000 * 60 * 2;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final HashMap<String/* topic */, List<QueueData>> topicQueueTable;
     private final HashMap<String/* brokerName */, BrokerData> brokerAddrTable;
@@ -71,7 +64,6 @@ public class RouteInfoManager {
         this.filterServerTable = new HashMap<String, List<String>>(256);
     }
 
-
     public byte[] getAllClusterInfo() {
         ClusterInfo clusterInfoSerializeWrapper = new ClusterInfo();
         clusterInfoSerializeWrapper.setBrokerAddrTable(this.brokerAddrTable);
@@ -79,22 +71,18 @@ public class RouteInfoManager {
         return clusterInfoSerializeWrapper.encode();
     }
 
-
     public void deleteTopic(final String topic) {
         try {
             try {
                 this.lock.writeLock().lockInterruptibly();
                 this.topicQueueTable.remove(topic);
-            }
-            finally {
+            } finally {
                 this.lock.writeLock().unlock();
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error("deleteTopic Exception", e);
         }
     }
-
 
     public byte[] getAllTopicList() {
         TopicList topicList = new TopicList();
@@ -102,38 +90,32 @@ public class RouteInfoManager {
             try {
                 this.lock.readLock().lockInterruptibly();
                 topicList.getTopicList().addAll(this.topicQueueTable.keySet());
-            }
-            finally {
+            } finally {
                 this.lock.readLock().unlock();
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error("getAllTopicList Exception", e);
         }
 
         return topicList.encode();
     }
 
-
-    /**
-     * @return 如果是slave，则返回master的ha地址
-     */
     public RegisterBrokerResult registerBroker(//
-            final String clusterName,// 1
-            final String brokerAddr,// 2
-            final String brokerName,// 3
-            final long brokerId,// 4
-            final String haServerAddr,// 5
-            final TopicConfigSerializeWrapper topicConfigWrapper,// 6
-            final List<String> filterServerList, // 7
-            final Channel channel// 8
+                                               final String clusterName,// 1
+                                               final String brokerAddr,// 2
+                                               final String brokerName,// 3
+                                               final long brokerId,// 4
+                                               final String haServerAddr,// 5
+                                               final TopicConfigSerializeWrapper topicConfigWrapper,// 6
+                                               final List<String> filterServerList, // 7
+                                               final Channel channel// 8
     ) {
         RegisterBrokerResult result = new RegisterBrokerResult();
         try {
             try {
                 this.lock.writeLock().lockInterruptibly();
 
-                // 更新集群信息
+
                 Set<String> brokerNames = this.clusterAddrTable.get(clusterName);
                 if (null == brokerNames) {
                     brokerNames = new HashSet<String>();
@@ -143,7 +125,7 @@ public class RouteInfoManager {
 
                 boolean registerFirst = false;
 
-                // 更新主备信息
+
                 BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                 if (null == brokerData) {
                     registerFirst = true;
@@ -157,7 +139,7 @@ public class RouteInfoManager {
                 String oldAddr = brokerData.getBrokerAddrs().put(brokerId, brokerAddr);
                 registerFirst = registerFirst || (null == oldAddr);
 
-                // 更新Topic信息
+
                 if (null != topicConfigWrapper //
                         && MixAll.MASTER_ID == brokerId) {
                     if (this.isBrokerTopicConfigChanged(brokerAddr, topicConfigWrapper.getDataVersion())//
@@ -165,36 +147,34 @@ public class RouteInfoManager {
                         ConcurrentHashMap<String, TopicConfig> tcTable =
                                 topicConfigWrapper.getTopicConfigTable();
                         if (tcTable != null) {
-                            for (String topic : tcTable.keySet()) {
-                                TopicConfig topicConfig = tcTable.get(topic);
-                                this.createAndUpdateQueueData(brokerName, topicConfig);
+                            for(Map.Entry<String,TopicConfig> entry: tcTable.entrySet()){
+                                this.createAndUpdateQueueData(brokerName, entry.getValue());
                             }
                         }
                     }
                 }
 
-                // 更新最后变更时间
+
                 BrokerLiveInfo prevBrokerLiveInfo = this.brokerLiveTable.put(brokerAddr, //
-                    new BrokerLiveInfo(//
-                        System.currentTimeMillis(), //
-                        topicConfigWrapper.getDataVersion(),//
-                        channel, //
-                        haServerAddr));
+                        new BrokerLiveInfo(//
+                                System.currentTimeMillis(), //
+                                topicConfigWrapper.getDataVersion(),//
+                                channel, //
+                                haServerAddr));
                 if (null == prevBrokerLiveInfo) {
                     log.info("new broker registerd, {} HAServer: {}", brokerAddr, haServerAddr);
                 }
 
-                // 更新Filter Server列表
+
                 if (filterServerList != null) {
                     if (filterServerList.isEmpty()) {
                         this.filterServerTable.remove(brokerAddr);
-                    }
-                    else {
+                    } else {
                         this.filterServerTable.put(brokerAddr, filterServerList);
                     }
                 }
 
-                // 返回值
+
                 if (MixAll.MASTER_ID != brokerId) {
                     String masterAddr = brokerData.getBrokerAddrs().get(MixAll.MASTER_ID);
                     if (masterAddr != null) {
@@ -205,22 +185,15 @@ public class RouteInfoManager {
                         }
                     }
                 }
-            }
-            finally {
+            } finally {
                 this.lock.writeLock().unlock();
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error("registerBroker Exception", e);
         }
 
         return result;
     }
-
-
-    /**
-     * 判断Topic配置信息是否发生变更
-     */
     private boolean isBrokerTopicConfigChanged(final String brokerAddr, final DataVersion dataVersion) {
         BrokerLiveInfo prev = this.brokerLiveTable.get(brokerAddr);
         if (null == prev || !prev.getDataVersion().equals(dataVersion)) {
@@ -230,24 +203,57 @@ public class RouteInfoManager {
         return false;
     }
 
+    private void createAndUpdateQueueData(final String brokerName, final TopicConfig topicConfig) {
+        QueueData queueData = new QueueData();
+        queueData.setBrokerName(brokerName);
+        queueData.setWriteQueueNums(topicConfig.getWriteQueueNums());
+        queueData.setReadQueueNums(topicConfig.getReadQueueNums());
+        queueData.setPerm(topicConfig.getPerm());
+        queueData.setTopicSynFlag(topicConfig.getTopicSysFlag());
+
+        List<QueueData> queueDataList = this.topicQueueTable.get(topicConfig.getTopicName());
+        if (null == queueDataList) {
+            queueDataList = new LinkedList<QueueData>();
+            queueDataList.add(queueData);
+            this.topicQueueTable.put(topicConfig.getTopicName(), queueDataList);
+            log.info("new topic registerd, {} {}", topicConfig.getTopicName(), queueData);
+        } else {
+            boolean addNewOne = true;
+
+            Iterator<QueueData> it = queueDataList.iterator();
+            while (it.hasNext()) {
+                QueueData qd = it.next();
+                if (qd.getBrokerName().equals(brokerName)) {
+                    if (qd.equals(queueData)) {
+                        addNewOne = false;
+                    } else {
+                        log.info("topic changed, {} OLD: {} NEW: {}", topicConfig.getTopicName(), qd,
+                                queueData);
+                        it.remove();
+                    }
+                }
+            }
+
+            if (addNewOne) {
+                queueDataList.add(queueData);
+            }
+        }
+    }
 
     public int wipeWritePermOfBrokerByLock(final String brokerName) {
         try {
             try {
                 this.lock.writeLock().lockInterruptibly();
                 return wipeWritePermOfBroker(brokerName);
-            }
-            finally {
+            } finally {
                 this.lock.writeLock().unlock();
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error("wipeWritePermOfBrokerByLock Exception", e);
         }
 
         return 0;
     }
-
 
     private int wipeWritePermOfBroker(final String brokerName) {
         int wipeTopicCnt = 0;
@@ -271,52 +277,11 @@ public class RouteInfoManager {
         return wipeTopicCnt;
     }
 
-
-    private void createAndUpdateQueueData(final String brokerName, final TopicConfig topicConfig) {
-        QueueData queueData = new QueueData();
-        queueData.setBrokerName(brokerName);
-        queueData.setWriteQueueNums(topicConfig.getWriteQueueNums());
-        queueData.setReadQueueNums(topicConfig.getReadQueueNums());
-        queueData.setPerm(topicConfig.getPerm());
-        queueData.setTopicSynFlag(topicConfig.getTopicSysFlag());
-
-        List<QueueData> queueDataList = this.topicQueueTable.get(topicConfig.getTopicName());
-        if (null == queueDataList) {
-            queueDataList = new LinkedList<QueueData>();
-            queueDataList.add(queueData);
-            this.topicQueueTable.put(topicConfig.getTopicName(), queueDataList);
-            log.info("new topic registerd, {} {}", topicConfig.getTopicName(), queueData);
-        }
-        else {
-            boolean addNewOne = true;
-
-            Iterator<QueueData> it = queueDataList.iterator();
-            while (it.hasNext()) {
-                QueueData qd = it.next();
-                if (qd.getBrokerName().equals(brokerName)) {
-                    if (qd.equals(queueData)) {
-                        addNewOne = false;
-                    }
-                    else {
-                        log.info("topic changed, {} OLD: {} NEW: {}", topicConfig.getTopicName(), qd,
-                            queueData);
-                        it.remove();
-                    }
-                }
-            }
-
-            if (addNewOne) {
-                queueDataList.add(queueData);
-            }
-        }
-    }
-
-
     public void unregisterBroker(//
-            final String clusterName,// 1
-            final String brokerAddr,// 2
-            final String brokerName,// 3
-            final long brokerId// 4
+                                 final String clusterName,// 1
+                                 final String brokerAddr,// 2
+                                 final String brokerName,// 3
+                                 final long brokerId// 4
     ) {
         try {
             try {
@@ -324,8 +289,8 @@ public class RouteInfoManager {
                 BrokerLiveInfo brokerLiveInfo = this.brokerLiveTable.remove(brokerAddr);
                 if (brokerLiveInfo != null) {
                     log.info("unregisterBroker, remove from brokerLiveTable {}, {}", //
-                        (brokerLiveInfo != null ? "OK" : "Failed"),//
-                        brokerAddr//
+                            (brokerLiveInfo != null ? "OK" : "Failed"),//
+                            brokerAddr//
                     );
                 }
 
@@ -336,14 +301,14 @@ public class RouteInfoManager {
                 if (null != brokerData) {
                     String addr = brokerData.getBrokerAddrs().remove(brokerId);
                     log.info("unregisterBroker, remove addr from brokerAddrTable {}, {}", //
-                        (addr != null ? "OK" : "Failed"),//
-                        brokerAddr//
+                            (addr != null ? "OK" : "Failed"),//
+                            brokerAddr//
                     );
 
                     if (brokerData.getBrokerAddrs().isEmpty()) {
                         this.brokerAddrTable.remove(brokerName);
                         log.info("unregisterBroker, remove name from brokerAddrTable OK, {}", //
-                            brokerName//
+                                brokerName//
                         );
 
                         removeBrokerName = true;
@@ -355,31 +320,26 @@ public class RouteInfoManager {
                     if (nameSet != null) {
                         boolean removed = nameSet.remove(brokerName);
                         log.info("unregisterBroker, remove name from clusterAddrTable {}, {}", //
-                            (removed ? "OK" : "Failed"),//
-                            brokerName//
+                                (removed ? "OK" : "Failed"),//
+                                brokerName//
                         );
 
                         if (nameSet.isEmpty()) {
                             this.clusterAddrTable.remove(clusterName);
                             log.info("unregisterBroker, remove cluster from clusterAddrTable {}", //
-                                clusterName//
+                                    clusterName//
                             );
                         }
                     }
-
-                    // 删除相应的topic
                     this.removeTopicByBrokerName(brokerName);
                 }
-            }
-            finally {
+            } finally {
                 this.lock.writeLock().unlock();
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error("unregisterBroker Exception", e);
         }
     }
-
 
     private void removeTopicByBrokerName(final String brokerName) {
         Iterator<Entry<String, List<QueueData>>> itMap = this.topicQueueTable.entrySet().iterator();
@@ -404,7 +364,6 @@ public class RouteInfoManager {
         }
     }
 
-
     public TopicRouteData pickupTopicRouteData(final String topic) {
         TopicRouteData topicRouteData = new TopicRouteData();
         boolean foundQueueData = false;
@@ -424,7 +383,7 @@ public class RouteInfoManager {
                     topicRouteData.setQueueDatas(queueDataList);
                     foundQueueData = true;
 
-                    // BrokerName去重
+
                     Iterator<QueueData> it = queueDataList.iterator();
                     while (it.hasNext()) {
                         QueueData qd = it.next();
@@ -437,11 +396,9 @@ public class RouteInfoManager {
                             BrokerData brokerDataClone = new BrokerData();
                             brokerDataClone.setBrokerName(brokerData.getBrokerName());
                             brokerDataClone.setBrokerAddrs((HashMap<Long, String>) brokerData
-                                .getBrokerAddrs().clone());
+                                    .getBrokerAddrs().clone());
                             brokerDataList.add(brokerDataClone);
                             foundBrokerData = true;
-
-                            // 增加Filter Server
                             for (final String brokerAddr : brokerDataClone.getBrokerAddrs().values()) {
                                 List<String> filterServerList = this.filterServerTable.get(brokerAddr);
                                 filterServerMap.put(brokerAddr, filterServerList);
@@ -449,12 +406,10 @@ public class RouteInfoManager {
                         }
                     }
                 }
-            }
-            finally {
+            } finally {
                 this.lock.readLock().unlock();
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error("pickupTopicRouteData Exception", e);
         }
 
@@ -468,10 +423,6 @@ public class RouteInfoManager {
 
         return null;
     }
-
-    // Broker Channel两分钟过期
-    private final static long BrokerChannelExpiredTime = 1000 * 60 * 2;
-
 
     public void scanNotActiveBroker() {
         Iterator<Entry<String, BrokerLiveInfo>> it = this.brokerLiveTable.entrySet().iterator();
@@ -487,14 +438,8 @@ public class RouteInfoManager {
         }
     }
 
-
-    /**
-     * Channel被关闭，或者Channel Idle时间超限
-     */
     public void onChannelDestroy(String remoteAddr, Channel channel) {
         String brokerAddrFound = null;
-
-        // 加读锁，寻找断开连接的Broker
         if (channel != null) {
             try {
                 try {
@@ -508,36 +453,28 @@ public class RouteInfoManager {
                             break;
                         }
                     }
-                }
-                finally {
+                } finally {
                     this.lock.readLock().unlock();
                 }
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 log.error("onChannelDestroy Exception", e);
             }
         }
 
         if (null == brokerAddrFound) {
             brokerAddrFound = remoteAddr;
-        }
-        else {
+        } else {
             log.info("the broker's channel destroyed, {}, clean it's data structure at once", brokerAddrFound);
         }
 
-        // 加写锁，删除相关数据结构
+
         if (brokerAddrFound != null && brokerAddrFound.length() > 0) {
 
             try {
                 try {
                     this.lock.writeLock().lockInterruptibly();
-                    // 清理brokerLiveTable
                     this.brokerLiveTable.remove(brokerAddrFound);
-
-                    // 清理Filter Server
                     this.filterServerTable.remove(brokerAddrFound);
-
-                    // 清理brokerAddrTable
                     String brokerNameFound = null;
                     boolean removeBrokerName = false;
                     Iterator<Entry<String, BrokerData>> itBrokerAddrTable =
@@ -545,7 +482,6 @@ public class RouteInfoManager {
                     while (itBrokerAddrTable.hasNext() && (null == brokerNameFound)) {
                         BrokerData brokerData = itBrokerAddrTable.next().getValue();
 
-                        // 遍历Master/Slave，删除brokerAddr
                         Iterator<Entry<Long, String>> it = brokerData.getBrokerAddrs().entrySet().iterator();
                         while (it.hasNext()) {
                             Entry<Long, String> entry = it.next();
@@ -555,22 +491,20 @@ public class RouteInfoManager {
                                 brokerNameFound = brokerData.getBrokerName();
                                 it.remove();
                                 log.info(
-                                    "remove brokerAddr[{}, {}] from brokerAddrTable, because channel destroyed",
-                                    brokerId, brokerAddr);
+                                        "remove brokerAddr[{}, {}] from brokerAddrTable, because channel destroyed",
+                                        brokerId, brokerAddr);
                                 break;
                             }
                         }
 
-                        // BrokerName无关联BrokerAddr
                         if (brokerData.getBrokerAddrs().isEmpty()) {
                             removeBrokerName = true;
                             itBrokerAddrTable.remove();
                             log.info("remove brokerName[{}] from brokerAddrTable, because channel destroyed",
-                                brokerData.getBrokerName());
+                                    brokerData.getBrokerName());
                         }
                     }
 
-                    // 清理clusterAddrTable
                     if (brokerNameFound != null && removeBrokerName) {
                         Iterator<Entry<String, Set<String>>> it = this.clusterAddrTable.entrySet().iterator();
                         while (it.hasNext()) {
@@ -580,14 +514,14 @@ public class RouteInfoManager {
                             boolean removed = brokerNames.remove(brokerNameFound);
                             if (removed) {
                                 log.info(
-                                    "remove brokerName[{}], clusterName[{}] from clusterAddrTable, because channel destroyed",
-                                    brokerNameFound, clusterName);
+                                        "remove brokerName[{}], clusterName[{}] from clusterAddrTable, because channel destroyed",
+                                        brokerNameFound, clusterName);
 
-                                // 如果集群对应的所有broker都下线了， 则集群也删除掉
+
                                 if (brokerNames.isEmpty()) {
                                     log.info(
-                                        "remove the clusterName[{}] from clusterAddrTable, because channel destroyed and no broker in this cluster",
-                                        clusterName);
+                                            "remove the clusterName[{}] from clusterAddrTable, because channel destroyed and no broker in this cluster",
+                                            clusterName);
                                     it.remove();
                                 }
 
@@ -596,7 +530,6 @@ public class RouteInfoManager {
                         }
                     }
 
-                    // 清理topicQueueTable
                     if (removeBrokerName) {
                         Iterator<Entry<String, List<QueueData>>> itTopicQueueTable =
                                 this.topicQueueTable.entrySet().iterator();
@@ -611,34 +544,28 @@ public class RouteInfoManager {
                                 if (queueData.getBrokerName().equals(brokerNameFound)) {
                                     itQueueData.remove();
                                     log.info(
-                                        "remove topic[{} {}], from topicQueueTable, because channel destroyed",
-                                        topic, queueData);
+                                            "remove topic[{} {}], from topicQueueTable, because channel destroyed",
+                                            topic, queueData);
                                 }
                             }
 
                             if (queueDataList.isEmpty()) {
                                 itTopicQueueTable.remove();
                                 log.info(
-                                    "remove topic[{}] all queue, from topicQueueTable, because channel destroyed",
-                                    topic);
+                                        "remove topic[{}] all queue, from topicQueueTable, because channel destroyed",
+                                        topic);
                             }
                         }
                     }
-                }
-                finally {
+                } finally {
                     this.lock.writeLock().unlock();
                 }
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 log.error("onChannelDestroy Exception", e);
             }
         }
     }
 
-
-    /**
-     * 定期打印当前类的数据结构
-     */
     public void printAllPeriodically() {
         try {
             try {
@@ -679,33 +606,25 @@ public class RouteInfoManager {
                         log.info("clusterAddrTable clusterName: {} {}", next.getKey(), next.getValue());
                     }
                 }
-            }
-            finally {
+            } finally {
                 this.lock.readLock().unlock();
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error("printAllPeriodically Exception", e);
         }
     }
 
 
-    /**
-     * 获取指定集群下的所有 topic 列表
-     * 
-     * @return
-     */
     public byte[] getSystemTopicList() {
         TopicList topicList = new TopicList();
         try {
             try {
                 this.lock.readLock().lockInterruptibly();
-                for (String cluster : clusterAddrTable.keySet()) {
-                    topicList.getTopicList().add(cluster);
-                    topicList.getTopicList().addAll(this.clusterAddrTable.get(cluster));
+                for (Map.Entry<String, Set<String>> entry : clusterAddrTable.entrySet()) {
+                    topicList.getTopicList().add(entry.getKey());
+                    topicList.getTopicList().addAll(entry.getValue());
                 }
 
-                // 随机取一台 broker
                 if (brokerAddrTable != null && !brokerAddrTable.isEmpty()) {
                     Iterator<String> it = brokerAddrTable.keySet().iterator();
                     while (it.hasNext()) {
@@ -718,25 +637,16 @@ public class RouteInfoManager {
                         }
                     }
                 }
-            }
-            finally {
+            } finally {
                 this.lock.readLock().unlock();
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error("getAllTopicList Exception", e);
         }
 
         return topicList.encode();
     }
 
-
-    /**
-     * 获取指定集群下的所有 topic 列表
-     * 
-     * @param cluster
-     * @return
-     */
     public byte[] getTopicsByCluster(String cluster) {
         TopicList topicList = new TopicList();
         try {
@@ -758,24 +668,16 @@ public class RouteInfoManager {
                         }
                     }
                 }
-            }
-            finally {
+            } finally {
                 this.lock.readLock().unlock();
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error("getAllTopicList Exception", e);
         }
 
         return topicList.encode();
     }
 
-
-    /**
-     * 获取单元逻辑下的所有 topic 列表
-     * 
-     * @return
-     */
     public byte[] getUnitTopics() {
         TopicList topicList = new TopicList();
         try {
@@ -792,24 +694,16 @@ public class RouteInfoManager {
                         topicList.getTopicList().add(topic);
                     }
                 }
-            }
-            finally {
+            } finally {
                 this.lock.readLock().unlock();
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error("getAllTopicList Exception", e);
         }
 
         return topicList.encode();
     }
 
-
-    /**
-     * 获取中心向单元同步的所有 topic 列表
-     * 
-     * @return
-     */
     public byte[] getHasUnitSubTopicList() {
         TopicList topicList = new TopicList();
         try {
@@ -826,24 +720,16 @@ public class RouteInfoManager {
                         topicList.getTopicList().add(topic);
                     }
                 }
-            }
-            finally {
+            } finally {
                 this.lock.readLock().unlock();
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error("getAllTopicList Exception", e);
         }
 
         return topicList.encode();
     }
 
-
-    /**
-     * 获取含有单元化订阅组的非单元化 Topic 列表
-     * 
-     * @return
-     */
     public byte[] getHasUnitSubUnUnitTopicList() {
         TopicList topicList = new TopicList();
         try {
@@ -861,12 +747,10 @@ public class RouteInfoManager {
                         topicList.getTopicList().add(topic);
                     }
                 }
-            }
-            finally {
+            } finally {
                 this.lock.readLock().unlock();
             }
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error("getAllTopicList Exception", e);
         }
 
@@ -883,7 +767,7 @@ class BrokerLiveInfo {
 
 
     public BrokerLiveInfo(long lastUpdateTimestamp, DataVersion dataVersion, Channel channel,
-            String haServerAddr) {
+                          String haServerAddr) {
         this.lastUpdateTimestamp = lastUpdateTimestamp;
         this.dataVersion = dataVersion;
         this.channel = channel;
